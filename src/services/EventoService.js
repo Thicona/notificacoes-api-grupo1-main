@@ -1,68 +1,11 @@
 // src/services/EventoService.js
 const { Evento } = require("../models");
 const { NotFoundError, ValidationError } = require("../errors/AppError");
+const appEmitter = require("../events/eventEmitter");
 
-async function listarTodos() {
-  const eventos = await Evento.findAll({
-    order: [["data", "ASC"]],
-  });
-  return eventos;
-}
-
-async function buscarPorId(id) {
-  const evento = await Evento.findByPk(id);
-
-  if (!evento) {
-    throw new NotFoundError("Evento");
-  }
-
-  return evento;
-}
-
-async function criar(dados) {
-  try {
-    const novoEvento = await Evento.create(dados);
-    return novoEvento;
-  } catch (erro) {
-    // O Sequelize lança SequelizeValidationError para validações do Model
-    if (erro.name === "SequelizeValidationError") {
-      const mensagens = erro.errors.map((e) => e.message).join("; ");
-      throw new ValidationError(mensagens);
-    }
-    throw erro;
-  }
-}
-
-// Atualizar e Deletar vamos implementar na próxima aula
-async function atualizar(id, dados) {
-  const evento = await Evento.findByPk(id);
-
-  if (!evento) {
-    throw new NotFoundError("Evento");
-  }
-
-  try {
-    await evento.update(dados);
-    return evento;
-  } catch (erro) {
-    if (erro.name === "SequelizeValidationError") {
-      const mensagens = erro.errors.map((e) => e.message).join("; ");
-      throw new ValidationError(mensagens);
-    }
-    throw erro;
-  }
-}
-
-async function deletar(id) {
-  const evento = await Evento.findByPk(id);
-
-  if (!evento) {
-    throw new NotFoundError("Evento");
-  }
-
-  await evento.destroy();
-  return true;
-}
+/**
+ * Busca todos os eventos com suporte a paginação e filtros.
+ */
 async function listarTodos(opcoes = {}) {
   const { pagina = 1, porPagina = 10, ordenarPor = "data", ordem = "ASC", busca = null } = opcoes;
 
@@ -86,11 +29,83 @@ async function listarTodos(opcoes = {}) {
     porPagina: parseInt(porPagina),
     totalPaginas: Math.ceil(count / parseInt(porPagina)),
   };
-} // <-- fecha listarTodos aqui
+}
 
-// listarFuturos FORA da listarTodos
+/**
+ * Busca um evento específico pelo ID.
+ */
+async function buscarPorId(id) {
+  const evento = await Evento.findByPk(id);
+
+  if (!evento) {
+    throw new NotFoundError("Evento");
+  }
+
+  return evento;
+}
+
+/**
+ * Cria um novo evento e dispara o aviso para os observers (logs).
+ */
+async function criar(dados) {
+  try {
+    const novoEvento = await Evento.create(dados);
+
+    if (appEmitter) {
+      appEmitter.emit("evento:criado", novoEvento);
+    }
+
+    return novoEvento;
+  } catch (erro) {
+    if (erro.name === "SequelizeValidationError") {
+      const mensagens = erro.errors.map((e) => e.message).join("; ");
+      throw new ValidationError(mensagens);
+    }
+    throw erro;
+  }
+}
+
+/**
+ * Atualiza os dados de um evento existente.
+ */
+async function atualizar(id, dados) {
+  const evento = await Evento.findByPk(id);
+
+  if (!evento) {
+    throw new NotFoundError("Evento");
+  }
+
+  try {
+    await evento.update(dados);
+    return evento;
+  } catch (erro) {
+    if (erro.name === "SequelizeValidationError") {
+      const mensagens = erro.errors.map((e) => e.message).join("; ");
+      throw new ValidationError(mensagens);
+    }
+    throw erro;
+  }
+}
+
+/**
+ * Remove um evento do banco de dados.
+ */
+async function deletar(id) {
+  const evento = await Evento.findByPk(id);
+
+  if (!evento) {
+    throw new NotFoundError("Evento");
+  }
+
+  await evento.destroy();
+  return true;
+}
+
+/**
+ * Filtra apenas os eventos que vão acontecer da data atual em diante.
+ */
 async function listarFuturos() {
-  const { Op } = require("sequelize");
+  const { Op } = require("slate-sequelize" in global ? "sequelize" : "sequelize");
 
   const eventos = await Evento.findAll({
     where: {
@@ -102,6 +117,7 @@ async function listarFuturos() {
   return eventos;
 }
 
+// ✅ EXPORTAÇÃO CORRETA E ÚNICA QUE O CONTROLLER PRECISA:
 module.exports = {
   listarTodos,
   buscarPorId,
